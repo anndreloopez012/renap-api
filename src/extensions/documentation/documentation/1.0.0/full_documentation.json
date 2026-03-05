@@ -14,7 +14,7 @@
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "x-generation-date": "2026-03-05T16:47:53.709Z"
+    "x-generation-date": "2026-03-05T17:22:02.686Z"
   },
   "x-strapi-config": {
     "plugins": [
@@ -2512,7 +2512,9 @@
             "type": "object",
             "properties": {
               "CUI": {
-                "type": "integer"
+                "type": "string",
+                "pattern": "^\\d*$",
+                "example": "123456789"
               },
               "PRIMER_NOMBRE": {
                 "type": "string"
@@ -2636,7 +2638,9 @@
             "type": "string"
           },
           "CUI": {
-            "type": "integer"
+            "type": "string",
+            "pattern": "^\\d*$",
+            "example": "123456789"
           },
           "PRIMER_NOMBRE": {
             "type": "string"
@@ -3100,7 +3104,9 @@
                   "type": "string"
                 },
                 "CUI": {
-                  "type": "integer"
+                  "type": "string",
+                  "pattern": "^\\d*$",
+                  "example": "123456789"
                 },
                 "PRIMER_NOMBRE": {
                   "type": "string"

@@ -481,7 +481,7 @@ export interface ApiInfoInfo extends Struct.CollectionTypeSchema {
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
-    CUI: Schema.Attribute.Integer;
+    CUI: Schema.Attribute.BigInteger;
     DEPTO_RESIDENCIA: Schema.Attribute.Text;
     DIRECCION: Schema.Attribute.Text;
     FECHA_NACIMIENTO: Schema.Attribute.Date;
