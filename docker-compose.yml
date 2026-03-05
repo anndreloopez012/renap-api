@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  strapi:
+    image: node:20
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - strapi_uploads:/app/public/uploads
+    command: sh -c "yarn install && yarn build && yarn start"
+
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+
+      DATABASE_CLIENT: ${DATABASE_CLIENT}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_SSL: ${DATABASE_SSL}
+      DATABASE_FILENAME: ${DATABASE_FILENAME}
+
+      JWT_SECRET: ${JWT_SECRET}
+
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_PREFIX: ${REDIS_PREFIX}
+
+    restart: always
+    depends_on:
+      - redis
+    networks:
+      - dokploy-network
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.strapi.rule=Host(`${STRAPI_DOMAIN}`)
+      - traefik.http.routers.strapi.entrypoints=websecure
+      - traefik.http.routers.strapi.tls=true
+      - traefik.http.services.strapi.loadbalancer.server.port=1337
+
+networks:
+  dokploy-network:
+    external: true
+
+volumes:
+  strapi_uploads:
+    name: "${TENANT}_strapi_uploads"

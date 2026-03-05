@@ -1,0 +1,72 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres_db_renap
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_network
+
+  strapi:
+    image: node:20
+    container_name: renap-backend
+    working_dir: /app
+    restart: always
+    ports:
+      - "1337:1337"
+      - "9000:9000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 1337
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "1000"
+
+      DATABASE_CLIENT: ${DATABASE_CLIENT}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USERNAME: ${DATABASE_USERNAME}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_SSL: ${DATABASE_SSL}
+      DATABASE_FILENAME: ${DATABASE_FILENAME}
+
+      JWT_SECRET: ${JWT_SECRET}
+
+    volumes:
+      - ./:/app
+      - /app/node_modules 
+      - strapi_uploads:/app/public/uploads
+    command: >
+      sh -c "
+        yarn install &&
+        yarn develop
+      "
+
+    depends_on:
+      - postgres
+
+    networks:
+      - backend_network
+
+volumes:
+  postgres_data:
+  strapi_uploads:
+
+networks:
+  backend_network:
+    driver: bridge
