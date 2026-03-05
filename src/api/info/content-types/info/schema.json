@@ -1,0 +1,66 @@
+{
+  "kind": "collectionType",
+  "collectionName": "infos",
+  "info": {
+    "singularName": "info",
+    "pluralName": "infos",
+    "displayName": "info"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "CUI": {
+      "type": "integer"
+    },
+    "PRIMER_NOMBRE": {
+      "type": "text"
+    },
+    "SEGUNDO_NOMBRE": {
+      "type": "text"
+    },
+    "TERCER_NOMBRE": {
+      "type": "text"
+    },
+    "PRIMER_APELLIDO": {
+      "type": "text"
+    },
+    "SEGUNDO_APELLIDO": {
+      "type": "text"
+    },
+    "FECHA_NACIMIENTO": {
+      "type": "date"
+    },
+    "CORREO_ELECTRONICO": {
+      "type": "text"
+    },
+    "TELEFONO": {
+      "type": "integer"
+    },
+    "PAIS_RESIDENCIA": {
+      "type": "text"
+    },
+    "DEPTO_RESIDENCIA": {
+      "type": "text"
+    },
+    "MUNIC_RESIDENCIA": {
+      "type": "text"
+    },
+    "DIRECCION": {
+      "type": "text"
+    },
+    "WS_MIDES": {
+      "type": "text"
+    },
+    "WS_MAGA": {
+      "type": "text"
+    },
+    "WS_MSPAS": {
+      "type": "text"
+    },
+    "WS_MINECO": {
+      "type": "text"
+    }
+  }
+}
