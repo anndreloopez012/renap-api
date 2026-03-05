@@ -24,10 +24,6 @@ services:
 
       JWT_SECRET: ${JWT_SECRET}
 
-      REDIS_HOST: ${REDIS_HOST}
-      REDIS_PORT: ${REDIS_PORT}
-      REDIS_PREFIX: ${REDIS_PREFIX}
-
     restart: always
     depends_on:
       - redis
@@ -48,4 +44,4 @@ networks:
 
 volumes:
   strapi_uploads:
-    name: "${TENANT}_strapi_uploads"
+    name: "${STRAPI}_strapi_uploads"
