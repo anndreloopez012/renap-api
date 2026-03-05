@@ -430,6 +430,42 @@ export interface AdminUser extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiInfoLogInfoLog extends Struct.CollectionTypeSchema {
+  collectionName: 'info_logs';
+  info: {
+    displayName: 'Info Query Log';
+    pluralName: 'info-logs';
+    singularName: 'info-log';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::info-log.info-log'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    requestMethod: Schema.Attribute.String;
+    requestPath: Schema.Attribute.String;
+    searchedAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    searchFilters: Schema.Attribute.JSON;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    user: Schema.Attribute.Relation<
+      'manyToOne',
+      'plugin::users-permissions.user'
+    >;
+    userLabel: Schema.Attribute.String & Schema.Attribute.Required;
+  };
+}
+
 export interface ApiInfoInfo extends Struct.CollectionTypeSchema {
   collectionName: 'infos';
   info: {
@@ -982,6 +1018,7 @@ declare module '@strapi/strapi' {
       'admin::transfer-token': AdminTransferToken;
       'admin::transfer-token-permission': AdminTransferTokenPermission;
       'admin::user': AdminUser;
+      'api::info-log.info-log': ApiInfoLogInfoLog;
       'api::info.info': ApiInfoInfo;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;

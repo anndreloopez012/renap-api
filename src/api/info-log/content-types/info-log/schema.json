@@ -1,0 +1,37 @@
+{
+  "kind": "collectionType",
+  "collectionName": "info_logs",
+  "info": {
+    "singularName": "info-log",
+    "pluralName": "info-logs",
+    "displayName": "Info Query Log"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "searchedAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "userLabel": {
+      "type": "string",
+      "required": true
+    },
+    "searchFilters": {
+      "type": "json"
+    },
+    "requestPath": {
+      "type": "string"
+    },
+    "requestMethod": {
+      "type": "string"
+    },
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user"
+    }
+  }
+}
