@@ -36,7 +36,7 @@
       "type": "text"
     },
     "TELEFONO": {
-      "type": "integer"
+      "type": "biginteger"
     },
     "PAIS_RESIDENCIA": {
       "type": "text"

@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { TextDecoder } = require('util');
 const core = require('@strapi/core');
 
 const UID = 'api::info.info';
@@ -16,6 +17,7 @@ function parseArgs(argv) {
   const args = {
     delimiter: DEFAULT_DELIMITER,
     batchSize: DEFAULT_BATCH_SIZE,
+    encoding: 'auto',
     dryRun: false,
   };
 
@@ -45,6 +47,12 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--encoding' || token === '-e') {
+      args.encoding = argv[i + 1];
+      i += 1;
+      continue;
+    }
+
     if (token === '--help' || token === '-h') {
       args.help = true;
       continue;
@@ -69,11 +77,73 @@ function parseArgs(argv) {
     throw new Error('--delimiter debe ser un solo caracter');
   }
 
+  if (!args.encoding) {
+    throw new Error('--encoding no puede estar vacio');
+  }
+
   return args;
 }
 
 function printHelp() {
-  console.log(`\nImportador masivo para api::info.info\n\nUso:\n  node scripts/import-info.js --file /ruta/archivo.csv [opciones]\n\nOpciones:\n  -f, --file         Ruta del archivo a importar (requerido)\n  -d, --delimiter    Delimitador de columnas (default: ;)\n  -b, --batch-size   Tamano de lote para insercion (default: 5000)\n      --dry-run      Solo valida y parsea, no inserta en DB\n  -h, --help         Muestra esta ayuda\n`);
+  console.log(`\nImportador masivo para api::info.info\n\nUso:\n  node scripts/import-info.js --file /ruta/archivo.csv [opciones]\n\nOpciones:\n  -f, --file         Ruta del archivo a importar (requerido)\n  -d, --delimiter    Delimitador de columnas (default: ;)\n  -b, --batch-size   Tamano de lote para insercion (default: 5000)\n  -e, --encoding     Codificacion de archivo: auto|utf8|latin1 (default: auto)\n      --dry-run      Solo valida y parsea, no inserta en DB\n  -h, --help         Muestra esta ayuda\n`);
+}
+
+function normalizeEncoding(encoding) {
+  const value = String(encoding || '')
+    .trim()
+    .toLowerCase();
+
+  if (value === 'auto') return 'auto';
+  if (value === 'utf8' || value === 'utf-8') return 'utf8';
+  if (value === 'latin1' || value === 'iso-8859-1' || value === 'windows-1252' || value === 'win1252') {
+    return 'latin1';
+  }
+
+  throw new Error(`Encoding no soportado: ${encoding}. Usa auto, utf8 o latin1`);
+}
+
+function detectFileEncoding(filePath) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const { size } = fs.fstatSync(fd);
+    const sampleSize = 256 * 1024;
+    const offsets = [0, Math.floor(size / 3), Math.floor((2 * size) / 3)];
+
+    let hasUtf8Bom = false;
+    let hasInvalidUtf8 = false;
+
+    for (const offset of offsets) {
+      const buffer = Buffer.alloc(sampleSize);
+      const safeOffset = Math.max(0, Math.min(offset, Math.max(0, size - sampleSize)));
+      const bytesRead = fs.readSync(fd, buffer, 0, sampleSize, safeOffset);
+      const sample = buffer.subarray(0, bytesRead);
+
+      if (safeOffset === 0 && sample.length >= 3) {
+        if (sample[0] === 0xef && sample[1] === 0xbb && sample[2] === 0xbf) {
+          hasUtf8Bom = true;
+        }
+      }
+
+      try {
+        new TextDecoder('utf-8', { fatal: true }).decode(sample);
+      } catch (_error) {
+        hasInvalidUtf8 = true;
+        break;
+      }
+    }
+
+    if (hasUtf8Bom) {
+      return 'utf8';
+    }
+
+    if (hasInvalidUtf8) {
+      return 'latin1';
+    }
+
+    return 'utf8';
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function parseDelimitedLine(line, delimiter) {
@@ -89,8 +159,10 @@ function parseDelimitedLine(line, delimiter) {
       if (inQuotes && next === '"') {
         current += '"';
         i += 1;
-      } else {
+      } else if (inQuotes || current.length === 0) {
         inQuotes = !inQuotes;
+      } else {
+        current += char;
       }
       continue;
     }
@@ -117,6 +189,15 @@ function normalizeHeader(rawHeader) {
   return rawHeader.map((value) => value.trim().replace(/^\uFEFF/, ''));
 }
 
+function sanitizeRawLine(rawLine) {
+  return rawLine
+    .replace(/&quot;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
 function adjustColumnsLength(columns, expectedLength) {
   if (columns.length <= expectedLength) {
     return columns;
@@ -137,7 +218,7 @@ function adjustColumnsLength(columns, expectedLength) {
 function parseDateValue(value) {
   const text = String(value).trim();
 
-  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+  const ddmmyyyy = /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/;
   const ddmmyyyyMatch = text.match(ddmmyyyy);
   if (ddmmyyyyMatch) {
     const day = Number(ddmmyyyyMatch[1]);
@@ -307,6 +388,11 @@ async function main() {
   console.log(`[import-info] Batch size: ${args.batchSize}`);
   console.log(`[import-info] Modo: ${args.dryRun ? 'dry-run' : 'insercion real'}`);
 
+  const selectedEncoding = normalizeEncoding(args.encoding);
+  const fileEncoding =
+    selectedEncoding === 'auto' ? detectFileEncoding(absolutePath) : selectedEncoding;
+  console.log(`[import-info] Encoding detectado/usado: ${fileEncoding}`);
+
   const strapi = args.dryRun ? null : await createStrapiApp();
   const startedAt = Date.now();
 
@@ -326,7 +412,7 @@ async function main() {
     const validColumns = Object.keys(attributes);
 
     const stream = fs.createReadStream(absolutePath, {
-      encoding: 'utf8',
+      encoding: fileEncoding,
       highWaterMark: 8 * 1024 * 1024,
     });
 
@@ -348,7 +434,14 @@ async function main() {
 
     for await (const rawLine of rl) {
       lineNumber += 1;
-      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+      const line = sanitizeRawLine(rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine);
+
+      if (line.includes('�')) {
+        throw new Error(
+          `Se detectaron caracteres invalidos en linea ${lineNumber}. ` +
+            'Reintenta con --encoding latin1 para preservar tildes y caracteres especiales.'
+        );
+      }
 
       if (!headers) {
         if (!line.trim()) {

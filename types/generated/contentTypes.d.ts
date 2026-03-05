@@ -495,7 +495,7 @@ export interface ApiInfoInfo extends Struct.CollectionTypeSchema {
     publishedAt: Schema.Attribute.DateTime;
     SEGUNDO_APELLIDO: Schema.Attribute.Text;
     SEGUNDO_NOMBRE: Schema.Attribute.Text;
-    TELEFONO: Schema.Attribute.Integer;
+    TELEFONO: Schema.Attribute.BigInteger;
     TERCER_NOMBRE: Schema.Attribute.Text;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &

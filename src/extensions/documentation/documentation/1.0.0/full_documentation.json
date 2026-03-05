@@ -14,7 +14,7 @@
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "x-generation-date": "2026-03-05T17:22:02.686Z"
+    "x-generation-date": "2026-03-05T19:21:50.916Z"
   },
   "x-strapi-config": {
     "plugins": [
@@ -2539,7 +2539,9 @@
                 "type": "string"
               },
               "TELEFONO": {
-                "type": "integer"
+                "type": "string",
+                "pattern": "^\\d*$",
+                "example": "123456789"
               },
               "PAIS_RESIDENCIA": {
                 "type": "string"
@@ -2665,7 +2667,9 @@
             "type": "string"
           },
           "TELEFONO": {
-            "type": "integer"
+            "type": "string",
+            "pattern": "^\\d*$",
+            "example": "123456789"
           },
           "PAIS_RESIDENCIA": {
             "type": "string"
@@ -3131,7 +3135,9 @@
                   "type": "string"
                 },
                 "TELEFONO": {
-                  "type": "integer"
+                  "type": "string",
+                  "pattern": "^\\d*$",
+                  "example": "123456789"
                 },
                 "PAIS_RESIDENCIA": {
                   "type": "string"
