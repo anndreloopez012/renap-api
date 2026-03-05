@@ -15,15 +15,28 @@ const ensureInfoSearchIndexes = async (strapi: Core.Strapi) => {
 
   await run('CREATE EXTENSION IF NOT EXISTS pg_trgm;');
   await run('CREATE EXTENSION IF NOT EXISTS unaccent;');
+  await run("CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT unaccent($1) $$;");
 
   const statements = [
     'CREATE INDEX IF NOT EXISTS idx_infos_cui ON infos (cui);',
-    "CREATE INDEX IF NOT EXISTS idx_infos_primer_nombre_trgm ON infos USING gin (lower(unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops);",
-    "CREATE INDEX IF NOT EXISTS idx_infos_segundo_nombre_trgm ON infos USING gin (lower(unaccent(coalesce(segundo_nombre, ''))) gin_trgm_ops);",
-    "CREATE INDEX IF NOT EXISTS idx_infos_tercer_nombre_trgm ON infos USING gin (lower(unaccent(coalesce(tercer_nombre, ''))) gin_trgm_ops);",
-    "CREATE INDEX IF NOT EXISTS idx_infos_primer_apellido_trgm ON infos USING gin (lower(unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops);",
-    "CREATE INDEX IF NOT EXISTS idx_infos_segundo_apellido_trgm ON infos USING gin (lower(unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops);",
-    "CREATE INDEX IF NOT EXISTS idx_infos_full_name_trgm ON infos USING gin (lower(unaccent(trim(concat_ws(' ', primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_primer_nombre_trgm;',
+    "CREATE INDEX idx_infos_primer_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_segundo_nombre_trgm;',
+    "CREATE INDEX idx_infos_segundo_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(segundo_nombre, ''))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_tercer_nombre_trgm;',
+    "CREATE INDEX idx_infos_tercer_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(tercer_nombre, ''))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_primer_apellido_trgm;',
+    "CREATE INDEX idx_infos_primer_apellido_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_segundo_apellido_trgm;',
+    "CREATE INDEX idx_infos_segundo_apellido_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops);",
+
+    'DROP INDEX IF EXISTS idx_infos_full_name_trgm;',
+    "CREATE INDEX idx_infos_full_name_trgm ON infos USING gin (lower(immutable_unaccent(trim(concat_ws(' ', primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)))) gin_trgm_ops);",
   ];
 
   for (const sql of statements) {
