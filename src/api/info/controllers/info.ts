@@ -232,7 +232,7 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
       //
       // The % operator uses GIN index for bitmap scan (very fast).
       // The LIKE '%term%' also uses GIN trigram index for terms >= 3 chars.
-      const fullNameExpr = `lower(unaccent(trim(concat_ws(' ',
+      const fullNameExpr = `lower(f_unaccent(trim(concat_ws(' ',
         primer_nombre, segundo_nombre, tercer_nombre,
         primer_apellido, segundo_apellido
       ))))`;
@@ -240,18 +240,18 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
       sql = `
         SELECT
           ${SELECT_COLS},
-          similarity(${fullNameExpr}, lower(unaccent(?))) AS relevance
+          similarity(${fullNameExpr}, lower(f_unaccent(?))) AS relevance
         FROM infos
         WHERE
-          ${fullNameExpr} % lower(unaccent(?))
-          OR ${fullNameExpr} LIKE '%' || lower(unaccent(?)) || '%'
-          OR lower(unaccent(coalesce(primer_nombre, '')))    % lower(unaccent(?))
-          OR lower(unaccent(coalesce(primer_apellido, '')))  % lower(unaccent(?))
-          OR lower(unaccent(coalesce(segundo_apellido, ''))) % lower(unaccent(?))
+          ${fullNameExpr} % lower(f_unaccent(?))
+          OR ${fullNameExpr} LIKE '%' || lower(f_unaccent(?)) || '%'
+          OR lower(f_unaccent(coalesce(primer_nombre, '')))    % lower(f_unaccent(?))
+          OR lower(f_unaccent(coalesce(primer_apellido, '')))  % lower(f_unaccent(?))
+          OR lower(f_unaccent(coalesce(segundo_apellido, ''))) % lower(f_unaccent(?))
         ORDER BY
           CASE
-            WHEN ${fullNameExpr} = lower(unaccent(?))       THEN 0
-            WHEN ${fullNameExpr} % lower(unaccent(?))       THEN 1
+            WHEN ${fullNameExpr} = lower(f_unaccent(?))       THEN 0
+            WHEN ${fullNameExpr} % lower(f_unaccent(?))       THEN 1
             ELSE 2
           END,
           relevance DESC,
