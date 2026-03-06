@@ -9,5 +9,14 @@ export default {
         middlewares: [],
       },
     },
+    {
+      method: 'POST',
+      path: '/infos/import',
+      handler: 'info.import',
+      config: {
+        policies: [],
+        middlewares: [],
+      },
+    },
   ],
 };
