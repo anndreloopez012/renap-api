@@ -29,10 +29,7 @@ module.exports = {
     await knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await knex.raw('CREATE EXTENSION IF NOT EXISTS unaccent');
 
-    // unaccent() is STABLE, not IMMUTABLE, so it cannot be used directly in
-    // index expressions. We create an IMMUTABLE wrapper that calls the
-    // underlying C function with a fixed dictionary — this is safe and is
-    // the standard PostgreSQL solution for this limitation.
+    // unaccent() is STABLE → create IMMUTABLE wrapper calling the C function directly.
     await knex.raw(`
       CREATE OR REPLACE FUNCTION f_unaccent(text)
       RETURNS text
@@ -40,21 +37,33 @@ module.exports = {
       $$ SELECT unaccent('unaccent', $1) $$
     `);
 
+    // concat_ws() is also STABLE → create IMMUTABLE full-name helper.
+    // Uses coalesce + || (both IMMUTABLE) instead of concat_ws.
+    // Returns lower(f_unaccent(trimmed full name)) ready for GIN trigram comparison.
+    await knex.raw(`
+      CREATE OR REPLACE FUNCTION f_fullname(text, text, text, text, text)
+      RETURNS text
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+      $$
+        SELECT lower(f_unaccent(trim(
+          coalesce($1, '') || ' ' ||
+          coalesce($2, '') || ' ' ||
+          coalesce($3, '') || ' ' ||
+          coalesce($4, '') || ' ' ||
+          coalesce($5, '')
+        )))
+      $$
+    `);
+
     // B-tree index on CUI (biginteger) → exact match in O(log n)
     await knex.raw('CREATE INDEX IF NOT EXISTS idx_infos_cui ON infos (cui)');
 
-    // GIN trigram index on the full concatenated name expression.
-    // Uses f_unaccent (IMMUTABLE wrapper) so PostgreSQL accepts it.
+    // GIN trigram index on the full name via f_fullname (fully IMMUTABLE chain)
     await knex.raw(`
       CREATE INDEX IF NOT EXISTS idx_infos_fullname_trgm ON infos
       USING gin (
-        lower(f_unaccent(trim(concat_ws(' ',
-          primer_nombre,
-          segundo_nombre,
-          tercer_nombre,
-          primer_apellido,
-          segundo_apellido
-        )))) gin_trgm_ops
+        f_fullname(primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)
+        gin_trgm_ops
       )
     `);
 
@@ -79,6 +88,7 @@ module.exports = {
     await knex.raw('DROP INDEX IF EXISTS idx_infos_primer_nombre_trgm');
     await knex.raw('DROP INDEX IF EXISTS idx_infos_primer_apellido_trgm');
     await knex.raw('DROP INDEX IF EXISTS idx_infos_segundo_apellido_trgm');
+    await knex.raw('DROP FUNCTION IF EXISTS f_fullname(text, text, text, text, text)');
     await knex.raw('DROP FUNCTION IF EXISTS f_unaccent(text)');
   },
 };

@@ -55,6 +55,7 @@ services:
       - strapi_uploads:/app/public/uploads
     command: >
       sh -c "
+        rm -rf dist &&
         yarn install &&
         yarn develop
       "

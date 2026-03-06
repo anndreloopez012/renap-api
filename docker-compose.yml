@@ -5,7 +5,7 @@ services:
     volumes:
       - ./:/app
       - strapi_uploads:/app/public/uploads
-    command: sh -c "yarn install && yarn build && yarn start"
+    command: sh -c "rm -rf dist && yarn install && yarn build && yarn start"
 
     environment:
       NODE_ENV: production
