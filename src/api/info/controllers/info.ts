@@ -164,78 +164,113 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
     }
 
     const isNumericTerm = /^\d+$/.test(term);
-    const normalizedTerm = term.toLowerCase();
 
-    const fullNameExpr =
-      "lower(unaccent(trim(concat_ws(' ', primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido))))";
-
-    const nameExpressions = [
-      "lower(unaccent(coalesce(primer_nombre, '')))",
-      "lower(unaccent(coalesce(segundo_nombre, '')))",
-      "lower(unaccent(coalesce(tercer_nombre, '')))",
-      "lower(unaccent(coalesce(primer_apellido, '')))",
-      "lower(unaccent(coalesce(segundo_apellido, '')))",
-    ];
-
-    const sql = `
-      SELECT
-        id,
-        document_id AS "documentId",
-        cui AS "CUI",
-        primer_nombre AS "PRIMER_NOMBRE",
-        segundo_nombre AS "SEGUNDO_NOMBRE",
-        tercer_nombre AS "TERCER_NOMBRE",
-        primer_apellido AS "PRIMER_APELLIDO",
-        segundo_apellido AS "SEGUNDO_APELLIDO",
-        fecha_nacimiento AS "FECHA_NACIMIENTO",
-        correo_electronico AS "CORREO_ELECTRONICO",
-        telefono AS "TELEFONO",
-        pais_residencia AS "PAIS_RESIDENCIA",
-        depto_residencia AS "DEPTO_RESIDENCIA",
-        munic_residencia AS "MUNIC_RESIDENCIA",
-        direccion AS "DIRECCION",
-        ws_mides AS "WS_MIDES",
-        ws_maga AS "WS_MAGA",
-        ws_mspas AS "WS_MSPAS",
-        ws_mineco AS "WS_MINECO",
-        similarity(${fullNameExpr}, lower(unaccent(?))) AS relevance
-      FROM infos
-      WHERE
-        (
-          (? = true AND cui::text LIKE ?)
-          OR ${fullNameExpr} % lower(unaccent(?))
-          OR ${fullNameExpr} LIKE '%' || lower(unaccent(?)) || '%'
-          OR ${nameExpressions.map((expr) => `${expr} % lower(unaccent(?))`).join(' OR ')}
-          OR ${nameExpressions.map((expr) => `${expr} LIKE '%' || lower(unaccent(?)) || '%'`).join(' OR ')}
-        )
-      ORDER BY
-        CASE
-          WHEN (? = true AND cui::text = ?) THEN 0
-          WHEN ${fullNameExpr} = lower(unaccent(?)) THEN 1
-          WHEN ${fullNameExpr} % lower(unaccent(?)) THEN 2
-          ELSE 3
-        END,
-        relevance DESC,
-        id DESC
-      LIMIT ?
-      OFFSET ?
+    // ── Shared SELECT columns ─────────────────────────────────────────────────
+    const SELECT_COLS = `
+      id,
+      document_id AS "documentId",
+      cui AS "CUI",
+      primer_nombre AS "PRIMER_NOMBRE",
+      segundo_nombre AS "SEGUNDO_NOMBRE",
+      tercer_nombre AS "TERCER_NOMBRE",
+      primer_apellido AS "PRIMER_APELLIDO",
+      segundo_apellido AS "SEGUNDO_APELLIDO",
+      fecha_nacimiento AS "FECHA_NACIMIENTO",
+      correo_electronico AS "CORREO_ELECTRONICO",
+      telefono AS "TELEFONO",
+      pais_residencia AS "PAIS_RESIDENCIA",
+      depto_residencia AS "DEPTO_RESIDENCIA",
+      munic_residencia AS "MUNIC_RESIDENCIA",
+      direccion AS "DIRECCION",
+      ws_mides AS "WS_MIDES",
+      ws_maga AS "WS_MAGA",
+      ws_mspas AS "WS_MSPAS",
+      ws_mineco AS "WS_MINECO"
     `;
 
-    const bindings = [
-      term,
-      isNumericTerm,
-      `${term}%`,
-      term,
-      term,
-      ...Array(nameExpressions.length).fill(term),
-      ...Array(nameExpressions.length).fill(term),
-      isNumericTerm,
-      term,
-      term,
-      term,
-      limit,
-      offset,
-    ];
+    let sql: string;
+    let bindings: unknown[];
+
+    if (isNumericTerm) {
+      // ── CUI path: uses B-tree index on cui (biginteger) ──────────────────
+      // Exact match is O(log n) → microseconds on 12M rows.
+      // Prefix match uses the text cast; still very fast with index.
+      const cuiBigInt = BigInt(term);
+      const isFullCui = term.length >= 13;
+
+      if (isFullCui) {
+        // Exact CUI lookup — single row, instant
+        sql = `
+          SELECT ${SELECT_COLS}, 1 AS relevance
+          FROM infos
+          WHERE cui = ?
+          ORDER BY id DESC
+          LIMIT ? OFFSET ?
+        `;
+        bindings = [cuiBigInt.toString(), limit, offset];
+      } else {
+        // Prefix CUI: range between term*10^pad and (term+1)*10^pad - 1
+        // Avoids text cast, stays on the B-tree numeric index
+        const padLen = 13 - term.length;
+        const pow = BigInt(10 ** padLen);
+        const lo = BigInt(term) * pow;
+        const hi = (BigInt(term) + BigInt(1)) * pow - BigInt(1);
+        sql = `
+          SELECT ${SELECT_COLS}, 1 AS relevance
+          FROM infos
+          WHERE cui BETWEEN ? AND ?
+          ORDER BY cui ASC
+          LIMIT ? OFFSET ?
+        `;
+        bindings = [lo.toString(), hi.toString(), limit, offset];
+      }
+    } else {
+      // ── Name path: uses GIN trigram indexes ──────────────────────────────
+      // idx_infos_fullname_trgm  covers the full concat expression
+      // idx_infos_primer_nombre_trgm / primer_apellido / segundo_apellido
+      // cover individual column lookups.
+      //
+      // The % operator uses GIN index for bitmap scan (very fast).
+      // The LIKE '%term%' also uses GIN trigram index for terms >= 3 chars.
+      const fullNameExpr = `lower(unaccent(trim(concat_ws(' ',
+        primer_nombre, segundo_nombre, tercer_nombre,
+        primer_apellido, segundo_apellido
+      ))))`;
+
+      sql = `
+        SELECT
+          ${SELECT_COLS},
+          similarity(${fullNameExpr}, lower(unaccent(?))) AS relevance
+        FROM infos
+        WHERE
+          ${fullNameExpr} % lower(unaccent(?))
+          OR ${fullNameExpr} LIKE '%' || lower(unaccent(?)) || '%'
+          OR lower(unaccent(coalesce(primer_nombre, '')))    % lower(unaccent(?))
+          OR lower(unaccent(coalesce(primer_apellido, '')))  % lower(unaccent(?))
+          OR lower(unaccent(coalesce(segundo_apellido, ''))) % lower(unaccent(?))
+        ORDER BY
+          CASE
+            WHEN ${fullNameExpr} = lower(unaccent(?))       THEN 0
+            WHEN ${fullNameExpr} % lower(unaccent(?))       THEN 1
+            ELSE 2
+          END,
+          relevance DESC,
+          id DESC
+        LIMIT ? OFFSET ?
+      `;
+      bindings = [
+        term, // similarity() SELECT
+        term, // fullname %
+        term, // fullname LIKE
+        term, // primer_nombre %
+        term, // primer_apellido %
+        term, // segundo_apellido %
+        term, // ORDER CASE exact
+        term, // ORDER CASE similarity
+        limit,
+        offset,
+      ];
+    }
 
     const rawResult = await strapi.db.connection.raw(sql, bindings);
     const rows = Array.isArray(rawResult?.rows)
@@ -254,7 +289,7 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
           pageSize: limit,
           count: rows.length,
         },
-        query: normalizedTerm,
+        query: term,
       },
     };
   },
