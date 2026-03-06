@@ -4,6 +4,8 @@
 
 import { factories } from '@strapi/strapi';
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import readline from 'readline';
 
 // ─── CSV Import helpers ───────────────────────────────────────────────────────
@@ -410,6 +412,204 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
       clearInterval(keepalive);
       try { res.end(); } catch (_) {}
       try { fs.unlinkSync(filePath); } catch (_) {}
+    }
+  },
+
+  // ── Chunked upload: recibe un fragmento del CSV ─────────────────────────────
+  async importChunk(ctx) {
+    const files = (ctx.request as any).files;
+    const chunk = files?.chunk;
+    const body = (ctx.request as any).body ?? {};
+    const uploadId = String(body.uploadId ?? '').trim().replace(/[^a-zA-Z0-9-]/g, '');
+    const chunkIndex = Number(body.chunkIndex ?? 0);
+    const totalChunks = Number(body.totalChunks ?? 1);
+
+    if (!chunk || !uploadId) {
+      ctx.status = 400;
+      ctx.body = { error: 'Faltan parámetros: chunk, uploadId' };
+      return;
+    }
+
+    const chunkPath: string = chunk.filepath ?? chunk.path;
+    if (!chunkPath || !fs.existsSync(chunkPath)) {
+      ctx.status = 400;
+      ctx.body = { error: 'No se pudo leer el chunk.' };
+      return;
+    }
+
+    const uploadDir = path.join(os.tmpdir(), `csv-import-${uploadId}`);
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    // Guardar chunk con nombre ordenado para ensamblar en orden
+    const destChunk = path.join(uploadDir, `chunk-${String(chunkIndex).padStart(6, '0')}`);
+    fs.renameSync(chunkPath, destChunk);
+
+    const received = fs.readdirSync(uploadDir).filter((f) => f.startsWith('chunk-')).length;
+
+    ctx.body = {
+      status: received >= totalChunks ? 'ready' : 'received',
+      uploadId,
+      chunkIndex,
+      received,
+      total: totalChunks,
+    };
+  },
+
+  // ── Procesar CSV ensamblado desde chunks → SSE ───────────────────────────────
+  async importProcess(ctx) {
+    const body = (ctx.request as any).body ?? {};
+    const uploadId = String(body.uploadId ?? '').trim().replace(/[^a-zA-Z0-9-]/g, '');
+    const totalChunks = Number(body.totalChunks ?? 0);
+    const delimiter = (String(body.delimiter ?? ';').trim()[0]) ?? ';';
+    const encodingParam = String(body.encoding ?? 'auto').toLowerCase();
+
+    if (!uploadId || totalChunks <= 0) {
+      ctx.status = 400;
+      ctx.body = { error: 'Faltan parámetros: uploadId, totalChunks' };
+      return;
+    }
+
+    const uploadDir = path.join(os.tmpdir(), `csv-import-${uploadId}`);
+    const mergedPath = path.join(uploadDir, 'merged.csv');
+
+    // Validar que todos los chunks existen
+    for (let i = 0; i < totalChunks; i++) {
+      const cp = path.join(uploadDir, `chunk-${String(i).padStart(6, '0')}`);
+      if (!fs.existsSync(cp)) {
+        ctx.status = 400;
+        ctx.body = { error: `Chunk ${i} no encontrado. Reinicia la subida.` };
+        return;
+      }
+    }
+
+    // ── SSE setup ──────────────────────────────────────────────────────────────
+    ctx.set({
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    ctx.status = 200;
+    ctx.respond = false;
+
+    const res = ctx.res;
+    const send = (data: object) => {
+      try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
+    };
+    const keepalive = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (_) {}
+    }, 15_000);
+
+    const cleanup = () => {
+      clearInterval(keepalive);
+      try { res.end(); } catch (_) {}
+      try { fs.rmSync(uploadDir, { recursive: true, force: true }); } catch (_) {}
+    };
+
+    try {
+      // 1. Ensamblar chunks en un solo archivo
+      send({ type: 'assembling', message: `Ensamblando ${totalChunks} fragmentos...` });
+
+      const writeStream = fs.createWriteStream(mergedPath);
+      for (let i = 0; i < totalChunks; i++) {
+        const cp = path.join(uploadDir, `chunk-${String(i).padStart(6, '0')}`);
+        await new Promise<void>((resolve, reject) => {
+          const rs = fs.createReadStream(cp);
+          rs.on('error', reject);
+          rs.on('end', () => { try { fs.unlinkSync(cp); } catch (_) {} resolve(); });
+          rs.pipe(writeStream, { end: false });
+        });
+      }
+      await new Promise<void>((resolve) => writeStream.end(resolve));
+
+      // 2. Detectar encoding
+      const fileEncoding: BufferEncoding =
+        encodingParam === 'auto' ? csvDetectEncoding(mergedPath) :
+        encodingParam === 'latin1' ? 'latin1' : 'utf8';
+
+      send({ type: 'start', encoding: fileEncoding, message: `Iniciando importacion (encoding: ${fileEncoding})...` });
+
+      // 3. Procesar CSV (misma lógica que import())
+      const contentType = strapi.contentTypes['api::info.info'];
+      const attributes: Record<string, { type: string }> = (contentType?.attributes ?? {}) as any;
+      const validColumns = Object.keys(attributes);
+
+      const stream = fs.createReadStream(mergedPath, { encoding: fileEncoding, highWaterMark: 8 * 1024 * 1024 });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+      const BATCH_SIZE = 2000;
+      const PROGRESS_EVERY = 10_000;
+      const stats = { processed: 0, inserted: 0, failed: 0, skipped: 0 };
+      const startedAt = Date.now();
+      let headers: string[] | null = null;
+      let batch: Record<string, unknown>[] = [];
+
+      const flushBatch = async () => {
+        if (batch.length === 0) return;
+        try {
+          await strapi.db.query('api::info.info').createMany({ data: batch });
+          stats.inserted += batch.length;
+        } catch {
+          const isolate = async (rows: Record<string, unknown>[]) => {
+            if (rows.length === 1) { stats.failed++; send({ type: 'rowError', message: 'Fila omitida por error' }); return; }
+            const mid = Math.floor(rows.length / 2);
+            try { await strapi.db.query('api::info.info').createMany({ data: rows.slice(0, mid) }); stats.inserted += mid; } catch { await isolate(rows.slice(0, mid)); }
+            try { await strapi.db.query('api::info.info').createMany({ data: rows.slice(mid) }); stats.inserted += rows.length - mid; } catch { await isolate(rows.slice(mid)); }
+          };
+          await isolate(batch);
+        }
+        batch = [];
+      };
+
+      for await (const rawLine of rl) {
+        const line = (rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine)
+          .replace(/&quot;/gi, "'").replace(/&amp;/gi, '&').replace(/&apos;/gi, "'");
+
+        if (!headers) {
+          if (!line.trim()) continue;
+          headers = csvParseLine(line, delimiter).map((h) => h.trim().replace(/^\uFEFF/, ''));
+          const unknown = headers.filter((h) => h && !validColumns.includes(h));
+          if (unknown.length > 0) { send({ type: 'error', message: `Columnas desconocidas: ${unknown.join(', ')}` }); cleanup(); return; }
+          send({ type: 'headers', columns: headers, message: `Columnas: ${headers.join(', ')}` });
+          continue;
+        }
+
+        if (!line.trim()) { stats.skipped++; continue; }
+
+        let cols: string[];
+        try { cols = csvParseLine(line, delimiter); } catch { stats.failed++; continue; }
+
+        while (cols.length > headers.length && cols[cols.length - 1].trim() === '') cols.pop();
+        if (cols.length !== headers.length) { stats.failed++; continue; }
+
+        const row: Record<string, unknown> = {};
+        let parseError = false;
+        for (let i = 0; i < headers.length; i++) {
+          const attr = attributes[headers[i]];
+          if (!attr) continue;
+          try { row[headers[i]] = csvCastValue(cols[i], attr.type); }
+          catch { stats.failed++; parseError = true; break; }
+        }
+        if (parseError) continue;
+
+        batch.push(row);
+        stats.processed++;
+
+        if (batch.length >= BATCH_SIZE) await flushBatch();
+
+        if (stats.processed % PROGRESS_EVERY === 0) {
+          const elapsed = (Date.now() - startedAt) / 1000;
+          send({ type: 'progress', ...stats, rate: Math.round(stats.processed / Math.max(elapsed, 1)), elapsed: elapsed.toFixed(1) });
+        }
+      }
+
+      await flushBatch();
+      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+      send({ type: 'complete', ...stats, elapsed, message: 'Importacion finalizada correctamente.' });
+    } catch (err) {
+      send({ type: 'error', message: `Error fatal: ${String(err)}` });
+    } finally {
+      cleanup();
     }
   },
 

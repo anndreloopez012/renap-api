@@ -18,5 +18,23 @@ export default {
         middlewares: [],
       },
     },
+    {
+      method: 'POST',
+      path: '/infos/import/chunk',
+      handler: 'info.importChunk',
+      config: {
+        policies: [],
+        middlewares: [],
+      },
+    },
+    {
+      method: 'POST',
+      path: '/infos/import/process',
+      handler: 'info.importProcess',
+      config: {
+        policies: [],
+        middlewares: [],
+      },
+    },
   ],
 };
