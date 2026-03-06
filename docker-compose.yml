@@ -23,8 +23,6 @@ services:
       JWT_SECRET: ${JWT_SECRET}
 
     restart: always
-    depends_on:
-      - redis
     networks:
       - dokploy-network
 
