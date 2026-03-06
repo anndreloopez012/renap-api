@@ -1,5 +1,33 @@
 import type { Core } from '@strapi/strapi';
 
+const warmIpSecurityCache = async (strapi: Core.Strapi) => {
+  strapi.log.info('[ip-security] Precargando listas de seguridad en cache...');
+  try {
+    const [wl, bl, rb] = await Promise.all([
+      strapi.entityService.findMany('api::ip-whitelist.ip-whitelist', {
+        filters: { active: true },
+        fields: ['ip'],
+        pagination: { pageSize: 1000 },
+      }),
+      strapi.entityService.findMany('api::ip-blacklist.ip-blacklist', {
+        filters: { active: true },
+        fields: ['ip'],
+        pagination: { pageSize: 5000 },
+      }),
+      strapi.entityService.findMany('api::region-block.region-block', {
+        filters: { active: true },
+        fields: ['countryCode'],
+        pagination: { pageSize: 300 },
+      }),
+    ]);
+    strapi.log.info(
+      `[ip-security] Cache cargada: ${(wl as any[]).length} whitelist | ${(bl as any[]).length} blacklist | ${(rb as any[]).length} regiones bloqueadas.`
+    );
+  } catch (err) {
+    strapi.log.warn(`[ip-security] No se pudo precargar cache de seguridad: ${err}`);
+  }
+};
+
 const ensureInfoSearchIndexes = async (strapi: Core.Strapi) => {
   const client = strapi.config.get('database.connection.client');
   if (client !== 'postgres') {
@@ -69,5 +97,6 @@ export default {
    */
   async bootstrap({ strapi }: { strapi: Core.Strapi }) {
     await ensureInfoSearchIndexes(strapi);
+    await warmIpSecurityCache(strapi);
   },
 };

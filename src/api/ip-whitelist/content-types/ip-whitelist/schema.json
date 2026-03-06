@@ -1,0 +1,27 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ip_whitelists",
+  "info": {
+    "singularName": "ip-whitelist",
+    "pluralName": "ip-whitelists",
+    "displayName": "IP Whitelist"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "ip": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "description": {
+      "type": "text"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

@@ -3,6 +3,7 @@ import type { Core } from '@strapi/strapi';
 const config: Core.Config.Middlewares = [
   'strapi::logger',
   'strapi::errors',
+  'global::ip-security',
   'strapi::security',
 
   {

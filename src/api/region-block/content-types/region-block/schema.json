@@ -1,0 +1,30 @@
+{
+  "kind": "collectionType",
+  "collectionName": "region_blocks",
+  "info": {
+    "singularName": "region-block",
+    "pluralName": "region-blocks",
+    "displayName": "Region Block"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "countryCode": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "countryName": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "text"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

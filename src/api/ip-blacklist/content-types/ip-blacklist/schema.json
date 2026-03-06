@@ -1,0 +1,37 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ip_blacklists",
+  "info": {
+    "singularName": "ip-blacklist",
+    "pluralName": "ip-blacklists",
+    "displayName": "IP Blacklist"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "ip": {
+      "type": "string",
+      "required": true
+    },
+    "reason": {
+      "type": "text"
+    },
+    "autoBlocked": {
+      "type": "boolean",
+      "default": false
+    },
+    "blockedAt": {
+      "type": "datetime",
+      "required": true
+    },
+    "expiresAt": {
+      "type": "datetime"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    }
+  }
+}

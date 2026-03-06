@@ -507,6 +507,104 @@ export interface ApiInfoInfo extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiIpBlacklistIpBlacklist extends Struct.CollectionTypeSchema {
+  collectionName: 'ip_blacklists';
+  info: {
+    displayName: 'IP Blacklist';
+    pluralName: 'ip-blacklists';
+    singularName: 'ip-blacklist';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
+    autoBlocked: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    blockedAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    expiresAt: Schema.Attribute.DateTime;
+    ip: Schema.Attribute.String & Schema.Attribute.Required;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::ip-blacklist.ip-blacklist'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    reason: Schema.Attribute.Text;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface ApiIpWhitelistIpWhitelist extends Struct.CollectionTypeSchema {
+  collectionName: 'ip_whitelists';
+  info: {
+    displayName: 'IP Whitelist';
+    pluralName: 'ip-whitelists';
+    singularName: 'ip-whitelist';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    description: Schema.Attribute.Text;
+    ip: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::ip-whitelist.ip-whitelist'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
+export interface ApiRegionBlockRegionBlock extends Struct.CollectionTypeSchema {
+  collectionName: 'region_blocks';
+  info: {
+    displayName: 'Region Block';
+    pluralName: 'region-blocks';
+    singularName: 'region-block';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
+    countryCode: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
+    countryName: Schema.Attribute.String;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::region-block.region-block'
+    > &
+      Schema.Attribute.Private;
+    publishedAt: Schema.Attribute.DateTime;
+    reason: Schema.Attribute.Text;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+  };
+}
+
 export interface PluginContentReleasesRelease
   extends Struct.CollectionTypeSchema {
   collectionName: 'strapi_releases';
@@ -1020,6 +1118,9 @@ declare module '@strapi/strapi' {
       'admin::user': AdminUser;
       'api::info-log.info-log': ApiInfoLogInfoLog;
       'api::info.info': ApiInfoInfo;
+      'api::ip-blacklist.ip-blacklist': ApiIpBlacklistIpBlacklist;
+      'api::ip-whitelist.ip-whitelist': ApiIpWhitelistIpWhitelist;
+      'api::region-block.region-block': ApiRegionBlockRegionBlock;
       'plugin::content-releases.release': PluginContentReleasesRelease;
       'plugin::content-releases.release-action': PluginContentReleasesReleaseAction;
       'plugin::i18n.locale': PluginI18NLocale;
