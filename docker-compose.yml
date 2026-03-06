@@ -29,10 +29,20 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
+
+      # Router principal
       - traefik.http.routers.strapi.rule=Host(`${STRAPI_DOMAIN}`)
       - traefik.http.routers.strapi.entrypoints=websecure
       - traefik.http.routers.strapi.tls=true
+      - traefik.http.routers.strapi.middlewares=strapi-upload
+
+      # Sin límite de body y timeouts extendidos para uploads grandes (CSV)
+      - traefik.http.middlewares.strapi-upload.buffering.maxRequestBodyBytes=0
+      - traefik.http.middlewares.strapi-upload.buffering.memRequestBodyBytes=0
+
+      # Timeouts del backend: 30 min para soportar uploads de varios GB
       - traefik.http.services.strapi.loadbalancer.server.port=1337
+      - traefik.http.services.strapi.loadbalancer.responseForwarding.flushInterval=100ms
 
 networks:
   dokploy-network:
