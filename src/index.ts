@@ -37,42 +37,56 @@ const ensureInfoSearchIndexes = async (strapi: Core.Strapi) => {
 
   strapi.log.info('[info-search] Verificando extensiones e indices de busqueda...');
 
-  const run = async (sql: string) => {
-    await strapi.db.connection.raw(sql);
-  };
+  const knex = strapi.db.connection;
 
-  await run('CREATE EXTENSION IF NOT EXISTS pg_trgm;');
-  await run('CREATE EXTENSION IF NOT EXISTS unaccent;');
-  await run("CREATE OR REPLACE FUNCTION immutable_unaccent(text) RETURNS text LANGUAGE sql IMMUTABLE AS $$ SELECT unaccent($1) $$;");
+  // Extensions (idempotent)
+  await knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+  await knex.raw('CREATE EXTENSION IF NOT EXISTS unaccent');
 
-  const statements = [
-    'CREATE INDEX IF NOT EXISTS idx_infos_cui ON infos (cui);',
+  // IMMUTABLE helper functions (idempotent via CREATE OR REPLACE)
+  await knex.raw(`
+    CREATE OR REPLACE FUNCTION f_unaccent(text)
+    RETURNS text
+    LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS
+    $$ SELECT unaccent('unaccent', $1) $$
+  `);
+  await knex.raw(`
+    CREATE OR REPLACE FUNCTION f_fullname(text, text, text, text, text)
+    RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+    $$
+      SELECT lower(f_unaccent(trim(
+        coalesce($1, '') || ' ' ||
+        coalesce($2, '') || ' ' ||
+        coalesce($3, '') || ' ' ||
+        coalesce($4, '') || ' ' ||
+        coalesce($5, '')
+      )))
+    $$
+  `);
 
-    'DROP INDEX IF EXISTS idx_infos_primer_nombre_trgm;',
-    "CREATE INDEX idx_infos_primer_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops);",
-
-    'DROP INDEX IF EXISTS idx_infos_segundo_nombre_trgm;',
-    "CREATE INDEX idx_infos_segundo_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(segundo_nombre, ''))) gin_trgm_ops);",
-
-    'DROP INDEX IF EXISTS idx_infos_tercer_nombre_trgm;',
-    "CREATE INDEX idx_infos_tercer_nombre_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(tercer_nombre, ''))) gin_trgm_ops);",
-
-    'DROP INDEX IF EXISTS idx_infos_primer_apellido_trgm;',
-    "CREATE INDEX idx_infos_primer_apellido_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops);",
-
-    'DROP INDEX IF EXISTS idx_infos_segundo_apellido_trgm;',
-    "CREATE INDEX idx_infos_segundo_apellido_trgm ON infos USING gin (lower(immutable_unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops);",
-
-    'DROP INDEX IF EXISTS idx_infos_full_name_trgm;',
-    "CREATE INDEX idx_infos_full_name_trgm ON infos USING gin (lower(immutable_unaccent(trim(concat_ws(' ', primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)))) gin_trgm_ops);",
+  // Indexes — only created if missing, never dropped (safe for 12M+ rows)
+  const indexes = [
+    'CREATE INDEX IF NOT EXISTS idx_infos_cui ON infos (cui)',
+    `CREATE INDEX IF NOT EXISTS idx_infos_fullname_trgm ON infos
+      USING gin (f_fullname(primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_infos_primer_nombre_trgm ON infos
+      USING gin (lower(f_unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_infos_segundo_nombre_trgm ON infos
+      USING gin (lower(f_unaccent(coalesce(segundo_nombre, ''))) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_infos_tercer_nombre_trgm ON infos
+      USING gin (lower(f_unaccent(coalesce(tercer_nombre, ''))) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_infos_primer_apellido_trgm ON infos
+      USING gin (lower(f_unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops)`,
+    `CREATE INDEX IF NOT EXISTS idx_infos_segundo_apellido_trgm ON infos
+      USING gin (lower(f_unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops)`,
   ];
 
-  for (const sql of statements) {
+  for (const sql of indexes) {
     try {
-      await run(sql);
+      await knex.raw(sql);
     } catch (error) {
-      strapi.log.warn(`[info-search] No se pudo ejecutar indice: ${sql}`);
-      strapi.log.warn(`[info-search] Motivo: ${String(error)}`);
+      strapi.log.warn(`[info-search] No se pudo crear indice: ${String(error)}`);
     }
   }
 

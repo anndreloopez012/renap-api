@@ -1,25 +1,12 @@
 'use strict';
 
 /**
- * Migration: Create GIN trigram + B-tree indexes on infos table
- * for fast full-text name search and CUI lookup on 12M+ records.
+ * Migration: Create PostgreSQL extensions and IMMUTABLE helper functions
+ * needed for GIN trigram indexes on the infos table.
  *
- * NOTE: This migration creates indexes WITHOUT CONCURRENTLY (required
- * inside a transaction). For production with active traffic, you may
- * prefer to run the SQL manually with CONCURRENTLY during off-peak hours:
- *
- *   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_infos_cui ON infos (cui);
- *   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_infos_fullname_trgm
- *     ON infos USING gin (
- *       lower(unaccent(trim(concat_ws(' ', primer_nombre, segundo_nombre,
- *         tercer_nombre, primer_apellido, segundo_apellido)))) gin_trgm_ops
- *     );
- *   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_infos_primer_nombre_trgm
- *     ON infos USING gin (lower(unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops);
- *   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_infos_primer_apellido_trgm
- *     ON infos USING gin (lower(unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops);
- *   CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_infos_segundo_apellido_trgm
- *     ON infos USING gin (lower(unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops);
+ * NOTE: Index creation is intentionally NOT done here because Strapi runs
+ * user migrations before the schema is fully synced, so the infos table
+ * may not exist yet. Indexes are created in src/index.ts bootstrap instead.
  */
 
 /** @type {import('@strapi/strapi').MigrationModule} */
@@ -29,7 +16,7 @@ module.exports = {
     await knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm');
     await knex.raw('CREATE EXTENSION IF NOT EXISTS unaccent');
 
-    // unaccent() is STABLE → create IMMUTABLE wrapper calling the C function directly.
+    // IMMUTABLE wrapper for unaccent (needed for functional GIN indexes)
     await knex.raw(`
       CREATE OR REPLACE FUNCTION f_unaccent(text)
       RETURNS text
@@ -37,9 +24,7 @@ module.exports = {
       $$ SELECT unaccent('unaccent', $1) $$
     `);
 
-    // concat_ws() is also STABLE → create IMMUTABLE full-name helper.
-    // Uses coalesce + || (both IMMUTABLE) instead of concat_ws.
-    // Returns lower(f_unaccent(trimmed full name)) ready for GIN trigram comparison.
+    // IMMUTABLE full-name helper → lower(f_unaccent(trimmed concat of all name parts))
     await knex.raw(`
       CREATE OR REPLACE FUNCTION f_fullname(text, text, text, text, text)
       RETURNS text
@@ -53,32 +38,6 @@ module.exports = {
           coalesce($5, '')
         )))
       $$
-    `);
-
-    // B-tree index on CUI (biginteger) → exact match in O(log n)
-    await knex.raw('CREATE INDEX IF NOT EXISTS idx_infos_cui ON infos (cui)');
-
-    // GIN trigram index on the full name via f_fullname (fully IMMUTABLE chain)
-    await knex.raw(`
-      CREATE INDEX IF NOT EXISTS idx_infos_fullname_trgm ON infos
-      USING gin (
-        f_fullname(primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)
-        gin_trgm_ops
-      )
-    `);
-
-    // GIN trigram indexes on individual name columns
-    await knex.raw(`
-      CREATE INDEX IF NOT EXISTS idx_infos_primer_nombre_trgm ON infos
-      USING gin (lower(f_unaccent(coalesce(primer_nombre, ''))) gin_trgm_ops)
-    `);
-    await knex.raw(`
-      CREATE INDEX IF NOT EXISTS idx_infos_primer_apellido_trgm ON infos
-      USING gin (lower(f_unaccent(coalesce(primer_apellido, ''))) gin_trgm_ops)
-    `);
-    await knex.raw(`
-      CREATE INDEX IF NOT EXISTS idx_infos_segundo_apellido_trgm ON infos
-      USING gin (lower(f_unaccent(coalesce(segundo_apellido, ''))) gin_trgm_ops)
     `);
   },
 

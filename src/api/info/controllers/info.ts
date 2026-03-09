@@ -226,49 +226,75 @@ export default factories.createCoreController('api::info.info', ({ strapi }) => 
       }
     } else {
       // ── Name path: uses GIN trigram indexes ──────────────────────────────
-      // idx_infos_fullname_trgm  covers the full concat expression
-      // idx_infos_primer_nombre_trgm / primer_apellido / segundo_apellido
-      // cover individual column lookups.
-      //
-      // The % operator uses GIN index for bitmap scan (very fast).
-      // The LIKE '%term%' also uses GIN trigram index for terms >= 3 chars.
-      // f_fullname() matches the GIN index expression exactly → index is used
       const fullNameExpr = `f_fullname(primer_nombre, segundo_nombre, tercer_nombre, primer_apellido, segundo_apellido)`;
-      const termExpr = `lower(f_unaccent(?))`;
 
-      sql = `
-        SELECT
-          ${SELECT_COLS},
-          similarity(${fullNameExpr}, ${termExpr}) AS relevance
-        FROM infos
-        WHERE
-          ${fullNameExpr} % ${termExpr}
-          OR ${fullNameExpr} LIKE '%' || ${termExpr} || '%'
-          OR lower(f_unaccent(coalesce(primer_nombre, '')))    % ${termExpr}
-          OR lower(f_unaccent(coalesce(primer_apellido, '')))  % ${termExpr}
-          OR lower(f_unaccent(coalesce(segundo_apellido, ''))) % ${termExpr}
-        ORDER BY
-          CASE
-            WHEN ${fullNameExpr} = ${termExpr} THEN 0
-            WHEN ${fullNameExpr} % ${termExpr} THEN 1
-            ELSE 2
-          END,
-          relevance DESC,
-          id DESC
-        LIMIT ? OFFSET ?
-      `;
-      bindings = [
-        term, // similarity() SELECT
-        term, // fullname %
-        term, // fullname LIKE
-        term, // primer_nombre %
-        term, // primer_apellido %
-        term, // segundo_apellido %
-        term, // ORDER CASE exact
-        term, // ORDER CASE similarity
-        limit,
-        offset,
-      ];
+      // Split into individual words (>= 3 chars for GIN trigram efficiency).
+      // f_fullname uses coalesce+|| which produces extra spaces between null
+      // fields, so searching the whole phrase "Werner Natareno" with LIKE
+      // fails against "werner  natareno". Splitting per word avoids this:
+      // each word LIKE is matched independently against the GIN index.
+      const words = term.split(/\s+/).filter((w) => w.length >= 3);
+
+      if (words.length > 1) {
+        // Multi-word: each word must be present somewhere in the fullname.
+        // PostgreSQL does a bitmap AND of GIN index scans → very fast.
+        const andLikes = words
+          .map(() => `${fullNameExpr} LIKE '%' || lower(f_unaccent(?)) || '%'`)
+          .join(' AND ');
+
+        sql = `
+          SELECT
+            ${SELECT_COLS},
+            similarity(${fullNameExpr}, lower(f_unaccent(?))) AS relevance
+          FROM infos
+          WHERE ${andLikes}
+          ORDER BY relevance DESC, id DESC
+          LIMIT ? OFFSET ?
+        `;
+        bindings = [
+          term,    // similarity() SELECT
+          ...words, // one ? per LIKE word condition
+          limit,
+          offset,
+        ];
+      } else {
+        // Single-word: similarity + LIKE + individual column similarity
+        const termNorm = `lower(f_unaccent(?))`;
+
+        sql = `
+          SELECT
+            ${SELECT_COLS},
+            similarity(${fullNameExpr}, ${termNorm}) AS relevance
+          FROM infos
+          WHERE
+            ${fullNameExpr} % ${termNorm}
+            OR ${fullNameExpr} LIKE '%' || ${termNorm} || '%'
+            OR lower(f_unaccent(coalesce(primer_nombre, '')))    % ${termNorm}
+            OR lower(f_unaccent(coalesce(primer_apellido, '')))  % ${termNorm}
+            OR lower(f_unaccent(coalesce(segundo_apellido, ''))) % ${termNorm}
+          ORDER BY
+            CASE
+              WHEN ${fullNameExpr} = ${termNorm}  THEN 0
+              WHEN ${fullNameExpr} % ${termNorm}  THEN 1
+              ELSE 2
+            END,
+            relevance DESC,
+            id DESC
+          LIMIT ? OFFSET ?
+        `;
+        bindings = [
+          term, // similarity() SELECT
+          term, // fullname %
+          term, // fullname LIKE
+          term, // primer_nombre %
+          term, // primer_apellido %
+          term, // segundo_apellido %
+          term, // ORDER CASE exact
+          term, // ORDER CASE similarity
+          limit,
+          offset,
+        ];
+      }
     }
 
     const rawResult = await strapi.db.connection.raw(sql, bindings);
